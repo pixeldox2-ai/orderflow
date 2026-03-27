@@ -14,8 +14,8 @@ Copy and paste this code into your Google Sheet's Script Editor (**Extensions > 
  * 1. Create a Google Sheet.
  * 2. Name the first sheet "Orders".
  * 3. Add these headers to "Orders" (Row 1): 
- *    orderId, sellerId, customerName, item, itemPhotoUrl, quantity, size, phone, instagramId, address, city, state, pincode, paymentMethod, orderStatus, paymentStatus, createdAt, amount
- *    (CRITICAL: "amount" MUST be in Column R. If it's not there, the amount won't save!)
+ *    orderId, sellerId, customerName, item, itemPhotoUrl, quantity, size, phone, instagramId, location, city, state, pincode, paymentMethod, orderStatus, paymentStatus, createdAt, amount, flocation
+ *    (CRITICAL: "amount" MUST be in Column R. "flocation" MUST be in Column S.)
  * 4. Name the second sheet "Sellers".
  * 5. Add these headers to "Sellers":
  *    sellerId, password, storeName, status
@@ -79,14 +79,29 @@ function getOrders(sellerId) {
   const data = sheet.getDataRange().getValues();
   if (data.length < 2) return [];
   
-  const headers = data.shift();
+  const headers = data.shift().map(h => String(h).trim().toLowerCase());
   const targetId = String(sellerId || '').trim().toLowerCase();
   
   const orders = data
     .filter(row => String(row[1]).trim().toLowerCase() === targetId)
     .map(row => {
       let obj = {};
-      headers.forEach((header, i) => obj[header] = row[i]);
+      headers.forEach((header, i) => {
+        if (!header) return;
+        // Map common headers to camelCase for the frontend
+        let key = header;
+        if (header === 'orderid') key = 'orderId';
+        if (header === 'sellerid') key = 'sellerId';
+        if (header === 'customername') key = 'customerName';
+        if (header === 'itemphotourl') key = 'itemPhotoUrl';
+        if (header === 'orderstatus') key = 'orderStatus';
+        if (header === 'paymentstatus') key = 'paymentStatus';
+        if (header === 'createdat') key = 'createdAt';
+        if (header === 'paymentmethod') key = 'paymentMethod';
+        if (header === 'instagramid') key = 'instagramId';
+        
+        obj[key] = row[i];
+      });
       return obj;
     });
     
@@ -96,53 +111,93 @@ function getOrders(sellerId) {
 function createOrder(data) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName('Orders');
+  if (!sheet) return { success: false, message: 'Sheet "Orders" not found' };
   
+  // 1. Handle Image Upload
   let imageUrl = '';
-  if (data.image) {
-    const folder = DriveApp.getFolderById(FOLDER_ID);
-    const contentType = data.image.split(',')[0].split(':')[1].split(';')[0];
-    const bytes = Utilities.base64Decode(data.image.split(',')[1]);
-    const file = folder.createFile(Utilities.newBlob(bytes, contentType, `order_${Date.now()}.png`));
-    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-    imageUrl = file.getUrl();
+  try {
+    if (data.image && FOLDER_ID && FOLDER_ID !== 'YOUR_DRIVE_FOLDER_ID_HERE') {
+      const folder = DriveApp.getFolderById(FOLDER_ID);
+      const contentType = data.image.split(',')[0].split(':')[1].split(';')[0];
+      const bytes = Utilities.base64Decode(data.image.split(',')[1]);
+      const fileName = `order_${data.customerName || 'unknown'}_${Date.now()}.png`.replace(/[^a-z0-9_.]/gi, '_');
+      const file = folder.createFile(Utilities.newBlob(bytes, contentType, fileName));
+      file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+      imageUrl = file.getUrl();
+    }
+  } catch (imageErr) {
+    console.error('Image Upload Error:', imageErr);
   }
   
+  // 2. Prepare Order Data
   const orderId = 'ORD-' + Math.random().toString(36).substr(2, 9).toUpperCase();
-  const row = [
-    orderId,
-    data.sellerId,
-    data.customerName,
-    data.item,
-    imageUrl,
-    data.quantity,
-    data.size,
-    data.phone,
-    data.instagramId || '',
-    data.address,
-    data.city,
-    data.state,
-    data.pincode,
-    data.paymentMethod,
-    'pending', // Default orderStatus
-    'unpaid',  // Default paymentStatus
-    new Date(),
-    0          // Default amount
-  ];
+  const orderData = {
+    orderid: orderId,
+    sellerid: data.sellerId,
+    customername: data.customerName,
+    item: data.item,
+    itemphotourl: imageUrl,
+    quantity: data.quantity,
+    size: data.size,
+    phone: data.phone,
+    instagramid: data.instagramId || '',
+    location: data.flocation || data.location || '', // Save to both for safety
+    flocation: data.flocation || data.location || '', // Save to both for safety
+    city: data.city,
+    state: data.state,
+    pincode: data.pincode,
+    paymentmethod: data.paymentMethod,
+    remarks: data.remarks || '',
+    orderstatus: 'pending',
+    paymentstatus: 'unpaid',
+    createdat: new Date(),
+    amount: 0
+  };
+
+  // 3. Map Data to Columns based on Headers
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0]
+    .map(h => String(h).trim().toLowerCase());
   
-  sheet.appendRow(row);
-  return { success: true, orderId: orderId };
+  const newRow = headers.map(header => {
+    if (!header) return '';
+    // Check if we have data for this header
+    return orderData[header] !== undefined ? orderData[header] : '';
+  });
+
+  // 4. Append the Row
+  try {
+    sheet.appendRow(newRow);
+    console.log('Order created successfully:', orderId);
+    return { success: true, orderId: orderId };
+  } catch (err) {
+    console.error('Append Row Error:', err);
+    return { success: false, message: 'Failed to save to sheet: ' + err.message };
+  }
 }
 
 function updateStatus(data) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName('Orders');
-  const rows = sheet.getDataRange().getValues();
+  if (!sheet) return { success: false, message: 'Sheet "Orders" not found' };
+  
+  const dataRange = sheet.getDataRange();
+  const rows = dataRange.getValues();
+  if (rows.length < 2) return { success: false, message: 'No data in sheet' };
+  
+  const headers = rows[0].map(h => String(h).trim().toLowerCase());
+  const orderIdCol = headers.indexOf('orderid');
+  
+  if (orderIdCol === -1) return { success: false, message: 'orderId column not found' };
+  
+  // Find the column to update
+  const targetHeader = String(data.type).toLowerCase();
+  const updateCol = headers.indexOf(targetHeader);
+  
+  if (updateCol === -1) return { success: false, message: 'Column "' + data.type + '" not found' };
   
   for (let i = 1; i < rows.length; i++) {
-    if (rows[i][0] === data.orderId) {
-      if (data.type === 'orderStatus') sheet.getRange(i + 1, 15).setValue(data.status);
-      if (data.type === 'paymentStatus') sheet.getRange(i + 1, 16).setValue(data.status);
-      if (data.type === 'amount') sheet.getRange(i + 1, 18).setValue(data.status);
+    if (String(rows[i][orderIdCol]) === String(data.orderId)) {
+      sheet.getRange(i + 1, updateCol + 1).setValue(data.status);
       return { success: true };
     }
   }

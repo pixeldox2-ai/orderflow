@@ -8,22 +8,12 @@ import { cn } from './lib/utils';
 
 // --- API Service ---
 // Hardcoded URL for reliability
-const API_URL = 'https://script.google.com/macros/s/AKfycbzxY0bLhbFRHMOOVx2uQlh29T_aUQJQC00ZxJ-AlWV6uJAG-ATsXc87EAAITbugP0zMLA/exec';
+const API_URL = 'https://script.google.com/macros/s/AKfycbw0MJwhSpu3frfXoCr3u98lMJzRg7Spmjn6v6yGQ9r0nQ_DLXCmImzC7yX-SQqejMTD/exec';
 
 const api = {
   async post(data: any) {
-    if (!API_URL) throw new Error('API_URL_MISSING');
-    
-    if (!API_URL.includes('script.google.com')) {
-      throw new Error('INVALID_URL_FORMAT');
-    }
-    
-    if (API_URL.endsWith('/dev')) {
-      throw new Error('DEV_URL_USED');
-    }
-
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000);
+    const timeoutId = setTimeout(() => controller.abort(), 45000);
 
     try {
       const response = await fetch(API_URL, {
@@ -47,26 +37,18 @@ const api = {
         return JSON.parse(text);
       } catch (e) {
         console.error('GAS returned non-JSON:', text);
-        if (text === 'Social Seller API is running.') {
-          throw new Error('REDEPLOY_REQUIRED');
-        }
         if (text.includes('<!DOCTYPE')) throw new Error('GAS_SCRIPT_ERROR');
         throw new Error('INVALID_JSON_RESPONSE');
       }
     } catch (err: any) {
       clearTimeout(timeoutId);
       if (err.name === 'AbortError') throw new Error('TIMEOUT');
-      if (err.message === 'Failed to fetch') {
-        console.error('Network error or CORS issue. Ensure GAS is deployed as "Anyone".');
-      }
       throw err;
     }
   },
   async get(action: string, params: Record<string, string> = {}) {
-    if (!API_URL) throw new Error('API_URL_MISSING');
-    
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 20000);
+    const timeoutId = setTimeout(() => controller.abort(), 45000);
 
     try {
       const queryParams = new URLSearchParams({ action, ...params }).toString();
@@ -80,9 +62,6 @@ const api = {
         return JSON.parse(text);
       } catch (e) {
         console.error('GAS GET returned non-JSON:', text);
-        if (text === 'Social Seller API is running.') {
-          throw new Error('REDEPLOY_REQUIRED');
-        }
         if (text.includes('<!DOCTYPE')) throw new Error('GAS_SCRIPT_ERROR');
         return null;
       }
@@ -104,7 +83,6 @@ function OrderForm() {
   const [success, setSuccess] = useState(false);
   const [countdown, setCountdown] = useState(5);
   const [storeName, setStoreName] = useState<string>('');
-  const [redeployRequired, setRedeployRequired] = useState(false);
   const [formData, setFormData] = useState({
     customerName: '',
     item: '',
@@ -112,31 +90,17 @@ function OrderForm() {
     size: '',
     phone: '',
     instagramId: '',
-    address: '',
+    flocation: '',
     city: '',
     state: '',
     pincode: '',
+    remarks: '',
     paymentMethod: 'WhatsApp Pay',
     image: null as string | null,
   });
 
   useEffect(() => {
-    if (!sellerId) return;
-    
-    const fetchStoreInfo = async () => {
-      try {
-        const res = await api.get('getStoreInfo', { sellerId });
-        if (res && res.success) {
-          setStoreName(res.storeName);
-        }
-      } catch (err: any) {
-        if (err.message === 'REDEPLOY_REQUIRED') {
-          setRedeployRequired(true);
-        }
-        console.error('Failed to fetch store info:', err);
-      }
-    };
-    fetchStoreInfo();
+    // Store name feature disabled for now
   }, [sellerId]);
 
   useEffect(() => {
@@ -169,30 +133,40 @@ function OrderForm() {
   const handleSubmit = async () => {
     setLoading(true);
     try {
-      const res = await api.post({
+      const payload = {
         action: 'createOrder',
         sellerId,
         timestamp: new Date().toISOString(),
-        ...formData
-      });
+        customerName: formData.customerName,
+        item: formData.item,
+        quantity: formData.quantity,
+        size: formData.size,
+        phone: formData.phone,
+        instagramId: formData.instagramId,
+        location: formData.flocation.trim(),
+        flocation: formData.flocation.trim(),
+        city: formData.city,
+        state: formData.state,
+        pincode: formData.pincode,
+        remarks: formData.remarks,
+        paymentMethod: formData.paymentMethod,
+        image: formData.image
+      };
+
+      console.log('Submitting order payload:', payload);
+      const res = await api.post(payload);
+      console.log('Order submission response:', res);
       if (res.success) {
         setSuccess(true);
       } else {
         alert('Order failed: ' + (res.message || 'The Google Script returned an error. Check your sheet headers.'));
       }
     } catch (err: any) {
-      if (err.message === 'REDEPLOY_REQUIRED') {
-        setRedeployRequired(true);
-      }
-      const urlPreview = API_URL ? `${API_URL.substring(0, 15)}...` : 'EMPTY';
-      if (err.message === 'API_URL_MISSING') {
-        alert(`Configuration Error: The URL is empty. Please set VITE_GAS_URL in settings.\n(Current: ${urlPreview})`);
-      } else if (err.message === 'DEV_URL_USED') {
-        alert(`Deployment Error: You are using a /dev URL. Please use the /exec URL.\n(Current: ${urlPreview})`);
-      } else if (err.message === 'INVALID_URL_FORMAT') {
-        alert(`URL Error: The link does not look like a Google Script link.\n(Current: ${urlPreview})\n\nIt should start with https://script.google.com/`);
+      console.error('Order submission error:', err);
+      if (err.message === 'TIMEOUT') {
+        alert('Order is taking longer than expected. Please check your Google Sheet in a minute to see if it was saved, or try again.');
       } else {
-        alert(`Network Error: The browser blocked the connection.\n(Current: ${urlPreview})\n\nCheck your script deployment (Anyone can access).`);
+        alert('Network Error: Could not connect to the server. Please try again.');
       }
     } finally {
       setLoading(false);
@@ -242,17 +216,6 @@ function OrderForm() {
       </div>
 
       <main className="max-w-2xl mx-auto px-6 py-8 h-screen flex flex-col">
-        {redeployRequired && (
-          <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-2xl flex items-start gap-3">
-            <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
-            <div className="space-y-1">
-              <p className="text-sm font-bold text-amber-900 leading-none">Action Required: Re-deploy Script</p>
-              <p className="text-xs text-amber-700 leading-relaxed">
-                The Google Apps Script needs to be re-deployed to support the new data fetching method. Please follow the instructions in GOOGLE_APPS_SCRIPT.md.
-              </p>
-            </div>
-          </div>
-        )}
         <header className="mb-8 space-y-2 shrink-0">
           <div className="flex items-center gap-2 text-zinc-400 mb-1">
             <ShoppingBag className="w-4 h-4" />
@@ -386,12 +349,23 @@ function OrderForm() {
                     />
                   </div>
                   <div className="space-y-1">
-                    <label className="text-[9px] uppercase tracking-widest text-zinc-400 font-bold">Address</label>
-                    <textarea 
-                      rows={3}
-                      className="w-full bg-transparent border-b-2 border-zinc-200 py-2 text-xl focus:border-zinc-900 outline-none transition-colors resize-none"
-                      value={formData.address}
-                      onChange={e => setFormData(prev => ({ ...prev, address: e.target.value }))}
+                    <label className="text-[9px] uppercase tracking-widest text-zinc-400 font-bold">Full Address / Location</label>
+                    <input 
+                      type="text" 
+                      placeholder="House No, Street, Area"
+                      className="w-full bg-transparent border-b-2 border-zinc-200 py-2 text-xl focus:border-zinc-900 outline-none transition-colors placeholder:text-zinc-200"
+                      value={formData.flocation}
+                      onChange={e => setFormData(prev => ({ ...prev, flocation: e.target.value }))}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[9px] uppercase tracking-widest text-zinc-400 font-bold">Remarks (Optional)</label>
+                    <input 
+                      type="text" 
+                      placeholder="Any special instructions"
+                      className="w-full bg-transparent border-b-2 border-zinc-200 py-2 text-xl focus:border-zinc-900 outline-none transition-colors placeholder:text-zinc-200"
+                      value={formData.remarks}
+                      onChange={e => setFormData(prev => ({ ...prev, remarks: e.target.value }))}
                     />
                   </div>
                   <div className="grid grid-cols-2 gap-6">
@@ -433,7 +407,7 @@ function OrderForm() {
                     Back
                   </button>
                   <button 
-                    disabled={!formData.customerName || !formData.phone || !formData.address || !formData.city || !formData.state || !formData.pincode}
+                    disabled={!formData.customerName || !formData.phone || !formData.flocation || !formData.city || !formData.state || !formData.pincode}
                     onClick={() => setStep(3)}
                     className="flex-[2] py-4 bg-zinc-900 text-white rounded-full font-bold text-base hover:bg-zinc-800 transition-all duration-300 disabled:opacity-20 shadow-lg shadow-zinc-200"
                   >
@@ -470,7 +444,7 @@ function OrderForm() {
                       <h3 className="text-zinc-400 text-[9px] uppercase tracking-widest font-bold mb-1">Deliver To</h3>
                       <p className="text-xs font-bold text-zinc-900">{formData.customerName}</p>
                       <p className="text-zinc-500 text-[10px] mt-0.5 leading-relaxed whitespace-pre-wrap">
-                        {formData.address}, {formData.city}<br />
+                        {formData.flocation}, {formData.city}<br />
                         {formData.state} - {formData.pincode}
                       </p>
                     </div>
@@ -519,14 +493,16 @@ function BusinessStats({ orders }: { orders: any[] }) {
     const lastWeek = subDays(now, 7);
     const lastMonth = subMonths(now, 1);
 
-    const totalSales = orders.reduce((sum, o) => sum + (Number(o.amount) || 0), 0);
+    const totalSales = orders
+      .filter(o => o.orderStatus?.toLowerCase() !== 'cancelled')
+      .reduce((sum, o) => sum + (Number(o.amount) || 0), 0);
     
     const lastWeekSales = orders
-      .filter(o => o.createdAt && parseISO(o.createdAt) >= lastWeek)
+      .filter(o => o.orderStatus?.toLowerCase() !== 'cancelled' && o.createdAt && parseISO(o.createdAt) >= lastWeek)
       .reduce((sum, o) => sum + (Number(o.amount) || 0), 0);
       
     const lastMonthSales = orders
-      .filter(o => o.createdAt && parseISO(o.createdAt) >= lastMonth)
+      .filter(o => o.orderStatus?.toLowerCase() !== 'cancelled' && o.createdAt && parseISO(o.createdAt) >= lastMonth)
       .reduce((sum, o) => sum + (Number(o.amount) || 0), 0);
 
     // Daily sales for the last 30 days
@@ -535,17 +511,19 @@ function BusinessStats({ orders }: { orders: any[] }) {
       const date = subDays(now, i);
       const dateStr = format(date, 'MMM dd');
       const daySales = orders
-        .filter(o => o.createdAt && format(parseISO(o.createdAt), 'MMM dd') === dateStr)
+        .filter(o => o.orderStatus?.toLowerCase() !== 'cancelled' && o.createdAt && format(parseISO(o.createdAt), 'MMM dd') === dateStr)
         .reduce((sum, o) => sum + (Number(o.amount) || 0), 0);
       dailyData.push({ name: dateStr, sales: daySales });
     }
 
     // Sales by Item
     const itemSales: { [key: string]: number } = {};
-    orders.forEach(o => {
-      const item = o.item || 'Unknown';
-      itemSales[item] = (itemSales[item] || 0) + (Number(o.amount) || 0);
-    });
+    orders
+      .filter(o => o.orderStatus?.toLowerCase() !== 'cancelled')
+      .forEach(o => {
+        const item = o.item || 'Unknown';
+        itemSales[item] = (itemSales[item] || 0) + (Number(o.amount) || 0);
+      });
     const itemData = Object.entries(itemSales)
       .map(([name, value]) => ({ name, value }))
       .sort((a, b) => b.value - a.value)
@@ -817,10 +795,9 @@ function Dashboard() {
   const { sellerId } = useParams();
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
-  const [isLoggedIn, setIsLoggedIn] = useState(() => localStorage.getItem(`isLoggedIn_${sellerId}`) === 'true');
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [password, setPassword] = useState('');
-  const [storeName, setStoreName] = useState(() => localStorage.getItem(`storeName_${sellerId}`) || '');
-  const [redeployRequired, setRedeployRequired] = useState(false);
+  const [storeName, setStoreName] = useState('');
   const [activeTab, setActiveTab] = useState<'orders' | 'stats'>('orders');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [error, setError] = useState('');
@@ -840,12 +817,13 @@ function Dashboard() {
       console.log('Orders data received:', data);
       setOrders(Array.isArray(data) ? data : []);
     } catch (err: any) {
-      if (err.message === 'REDEPLOY_REQUIRED') {
-        setRedeployRequired(true);
-      }
       console.error('Fetch Orders Error:', err);
       setOrders([]);
-      setError('Failed to fetch orders. Please check your connection.');
+      if (err.message === 'TIMEOUT') {
+        setError('Request timed out while fetching orders. Please refresh the page.');
+      } else {
+        setError('Failed to fetch orders. Please check your connection.');
+      }
     } finally {
       setLoading(false);
     }
@@ -867,26 +845,14 @@ function Dashboard() {
         } else {
           setIsLoggedIn(true);
           setStoreName(res.storeName);
-          localStorage.setItem(`isLoggedIn_${sellerId}`, 'true');
-          localStorage.setItem(`storeName_${sellerId}`, res.storeName);
           // fetchOrders is called by useEffect
         }
       } else {
         setError('Invalid password');
       }
     } catch (err: any) {
-      if (err.message === 'REDEPLOY_REQUIRED') {
-        setRedeployRequired(true);
-      }
-      const urlPreview = API_URL ? `${API_URL.substring(0, 15)}...` : 'EMPTY';
-      if (err.message === 'API_URL_MISSING') {
-        setError('Configuration Error: The URL is empty.');
-      } else if (err.message === 'TIMEOUT') {
-        setError('Request Timed Out: Google Sheets is taking too long to respond.');
-      } else if (err.message === 'GAS_SCRIPT_ERROR') {
-        setError('Script Error: Your Google Apps Script crashed. Check the "Executions" tab in the script editor for errors.');
-      } else if (err.message === 'INVALID_JSON_RESPONSE') {
-        setError('Data Error: The script returned an invalid response. Check your sheet names.');
+      if (err.message === 'TIMEOUT') {
+        setError('Request timed out. Google Sheets is taking too long to respond. Please try again.');
       } else {
         setError('Network Error: Could not connect to Google Sheets. Check your deployment.');
       }
@@ -904,10 +870,11 @@ function Dashboard() {
         alert('Update failed: ' + (res.message || 'Unknown error'));
       }
     } catch (err: any) {
-      if (err.message === 'REDEPLOY_REQUIRED') {
-        setRedeployRequired(true);
+      if (err.message === 'TIMEOUT') {
+        alert('Update is taking longer than expected. Please refresh the page in a minute to see if it was saved.');
+      } else {
+        alert('Network Error: Could not connect to Google Sheets.');
       }
-      alert('Network Error: Could not connect to Google Sheets.');
     }
   };
 
@@ -929,15 +896,6 @@ function Dashboard() {
           <h1 className="text-3xl font-semibold tracking-tight mb-2">Seller Login</h1>
           <p className="text-zinc-500 text-sm mb-8">Enter your password to access the dashboard for <span className="font-bold text-zinc-900">{sellerId}</span>.</p>
           
-          {redeployRequired && (
-            <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-2xl flex items-start gap-3">
-              <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
-              <p className="text-xs text-amber-700 leading-relaxed font-medium">
-                Script re-deployment required. Please check GOOGLE_APPS_SCRIPT.md.
-              </p>
-            </div>
-          )}
-
           <form onSubmit={handleLogin} className="space-y-4">
             <input 
               type="password" 
@@ -983,8 +941,6 @@ function Dashboard() {
         <button 
           onClick={() => {
             setIsLoggedIn(false);
-            localStorage.removeItem(`isLoggedIn_${sellerId}`);
-            localStorage.removeItem(`storeName_${sellerId}`);
           }}
           className="p-2 hover:bg-zinc-100 rounded-full transition-colors text-zinc-400 hover:text-zinc-900"
         >
@@ -993,19 +949,6 @@ function Dashboard() {
       </nav>
 
       <main className="max-w-6xl mx-auto p-8">
-        {redeployRequired && (
-          <div className="mb-8 p-6 bg-amber-50 border border-amber-200 rounded-3xl flex items-start gap-4">
-            <div className="w-12 h-12 bg-amber-100 rounded-2xl flex items-center justify-center shrink-0">
-              <AlertCircle className="w-6 h-6 text-amber-600" />
-            </div>
-            <div className="space-y-2">
-              <h3 className="text-lg font-bold text-amber-900 leading-none">Action Required: Re-deploy Script</h3>
-              <p className="text-sm text-amber-700 leading-relaxed">
-                The Google Apps Script needs to be re-deployed to support the new data fetching method. Please follow the instructions in GOOGLE_APPS_SCRIPT.md to update your script.
-              </p>
-            </div>
-          </div>
-        )}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-end mb-12 gap-6">
           <div>
             <h1 className="text-4xl font-bold tracking-tight">{activeTab === 'orders' ? 'Orders' : 'Statistics'}</h1>
@@ -1053,7 +996,7 @@ function Dashboard() {
 
         {activeTab === 'orders' && !loading && Array.isArray(orders) && orders.length > 0 && (
           <div className="flex flex-wrap gap-2 mb-8">
-            {['all', 'pending', 'confirmed', 'shipped', 'paid', 'unpaid'].map((status) => (
+            {['all', 'pending', 'confirmed', 'shipped', 'cancelled', 'paid', 'unpaid'].map((status) => (
               <button
                 key={status}
                 onClick={() => setStatusFilter(status)}
@@ -1102,16 +1045,7 @@ function Dashboard() {
                 >
                   {/* Image & Main Info */}
                   <div className="flex gap-6 flex-1">
-                      <div className="w-32 h-32 rounded-2xl overflow-hidden border border-zinc-100 bg-zinc-50 flex-shrink-0">
-                        {order.image ? (
-                          <img src={order.image} className="w-full h-full object-cover" alt="Item" referrerPolicy="no-referrer" />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center text-zinc-300">
-                            <Package className="w-8 h-8" />
-                          </div>
-                        )}
-                      </div>
-                      <div className="space-y-4">
+                      <div className="space-y-4 flex-1">
                         <div className="flex justify-between items-start">
                           <div>
                             <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-400 bg-zinc-100 px-2 py-1 rounded-md mb-2 inline-block">
@@ -1133,6 +1067,7 @@ function Dashboard() {
                           order.orderStatus?.toLowerCase() === 'pending' && "bg-orange-100 text-orange-600",
                           order.orderStatus?.toLowerCase() === 'confirmed' && "bg-blue-100 text-blue-600",
                           order.orderStatus?.toLowerCase() === 'shipped' && "bg-green-100 text-green-600",
+                          order.orderStatus?.toLowerCase() === 'cancelled' && "bg-red-100 text-red-600",
                         )}>
                           {order.orderStatus}
                         </div>
@@ -1172,14 +1107,42 @@ function Dashboard() {
                   </div>
                   <div className="flex items-start gap-3">
                     <MapPin className="w-4 h-4 text-zinc-400 mt-1" />
-                    <div className="text-xs text-zinc-500 leading-relaxed whitespace-pre-wrap">
-                      <p>{order.address}</p>
+                    <div className="text-xs text-zinc-500 leading-relaxed">
+                      <p className="font-medium text-zinc-900">
+                        {order.flocation || order.location || order.address || order.Address || 'No Location Provided'}
+                      </p>
+                      <p>
+                        {(order.city || order.City) && `${order.city || order.City}, `}
+                        {(order.state || order.State) && `${order.state || order.State} `}
+                        {(order.pincode || order.Pincode) && `- ${order.pincode || order.Pincode}`}
+                      </p>
                     </div>
                   </div>
                   <div className="flex items-start gap-3">
                     <CreditCard className="w-4 h-4 text-zinc-400 mt-1" />
                     <p className="text-xs text-zinc-500">{order.paymentMethod}</p>
                   </div>
+                  {order.remarks && (
+                    <div className="flex items-start gap-3">
+                      <AlertCircle className="w-4 h-4 text-zinc-400 mt-1" />
+                      <div className="text-xs text-zinc-500">
+                        <p className="font-bold text-zinc-900 uppercase text-[9px] tracking-widest mb-0.5">Remarks</p>
+                        <p className="italic">"{order.remarks}"</p>
+                      </div>
+                    </div>
+                  )}
+                  {order.itemPhotoUrl && (
+                    <div className="pt-2">
+                      <a 
+                        href={order.itemPhotoUrl} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 px-4 py-2 bg-zinc-900 text-white rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-zinc-800 transition-all shadow-sm"
+                      >
+                        <Upload className="w-3.5 h-3.5" /> View Reference Image
+                      </a>
+                    </div>
+                  )}
                 </div>
 
                 {/* Actions */}
@@ -1187,12 +1150,24 @@ function Dashboard() {
                   <p className="text-[10px] uppercase tracking-widest text-zinc-400 font-bold mb-1">Actions</p>
                   
                   {order.orderStatus?.toLowerCase() === 'pending' && (
-                    <button 
-                      onClick={() => updateStatus(order.orderId, 'orderStatus', 'Confirmed')}
-                      className="w-full py-4 px-4 bg-zinc-900 text-white rounded-xl text-xs font-bold hover:bg-zinc-800 transition-all flex items-center justify-center gap-2"
-                    >
-                      <CheckCircle className="w-4 h-4" /> Confirm Order
-                    </button>
+                    <div className="flex flex-col gap-2">
+                      <button 
+                        onClick={() => updateStatus(order.orderId, 'orderStatus', 'Confirmed')}
+                        className="w-full py-4 px-4 bg-zinc-900 text-white rounded-xl text-xs font-bold hover:bg-zinc-800 transition-all flex items-center justify-center gap-2"
+                      >
+                        <CheckCircle className="w-4 h-4" /> Confirm Order
+                      </button>
+                      <button 
+                        onClick={() => {
+                          if (window.confirm('Are you sure you want to cancel this order?')) {
+                            updateStatus(order.orderId, 'orderStatus', 'Cancelled');
+                          }
+                        }}
+                        className="w-full py-4 px-4 border border-red-200 text-red-600 rounded-xl text-xs font-bold hover:bg-red-50 transition-all flex items-center justify-center gap-2"
+                      >
+                        <AlertCircle className="w-4 h-4" /> Cancel Order
+                      </button>
+                    </div>
                   )}
                   
                   {order.orderStatus?.toLowerCase() === 'confirmed' && (
