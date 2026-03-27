@@ -80,6 +80,8 @@ function OrderForm() {
   const { sellerId } = useParams();
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [uploadedImageUrl, setUploadedImageUrl] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [countdown, setCountdown] = useState(5);
   const [storeName, setStoreName] = useState<string>('');
@@ -123,8 +125,22 @@ function OrderForm() {
     const file = e.target.files?.[0];
     if (file) {
       const reader = new FileReader();
-      reader.onloadend = () => {
-        setFormData(prev => ({ ...prev, image: reader.result as string }));
+      reader.onloadend = async () => {
+        const base64 = reader.result as string;
+        setFormData(prev => ({ ...prev, image: base64 }));
+        
+        // Background upload
+        setIsUploadingImage(true);
+        try {
+          const res = await api.post({ action: 'uploadImage', image: base64 });
+          if (res.success) {
+            setUploadedImageUrl(res.imageUrl);
+          }
+        } catch (err) {
+          console.error('Background upload failed:', err);
+        } finally {
+          setIsUploadingImage(false);
+        }
       };
       reader.readAsDataURL(file);
     }
@@ -150,7 +166,8 @@ function OrderForm() {
         pincode: formData.pincode,
         remarks: formData.remarks,
         paymentMethod: formData.paymentMethod,
-        image: formData.image
+        itemPhotoUrl: uploadedImageUrl,
+        image: uploadedImageUrl ? null : formData.image
       };
 
       console.log('Submitting order payload:', payload);
@@ -288,7 +305,9 @@ function OrderForm() {
                     onClick={() => document.getElementById('file-upload')?.click()}
                   >
                     {formData.image ? (
-                      <img src={formData.image} className="w-full h-full object-cover" alt="Preview" />
+                      <div className="relative w-full h-full">
+                        <img src={formData.image} className="w-full h-full object-cover" alt="Preview" />
+                      </div>
                     ) : (
                       <>
                         <div className="w-8 h-8 bg-zinc-50 rounded-full flex items-center justify-center mb-1 group-hover:scale-110 transition-transform">

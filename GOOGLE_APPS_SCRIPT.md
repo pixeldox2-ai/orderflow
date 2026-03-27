@@ -59,6 +59,11 @@ function doPost(e) {
     return ContentService.createTextOutput(JSON.stringify(updateStatus(data)))
       .setMimeType(ContentService.MimeType.JSON);
   }
+
+  if (action === 'uploadImage') {
+    return ContentService.createTextOutput(JSON.stringify(uploadImage(data)))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
   
   if (action === 'sellerLogin') {
     return ContentService.createTextOutput(JSON.stringify(sellerLogin(data)))
@@ -113,10 +118,10 @@ function createOrder(data) {
   const sheet = ss.getSheetByName('Orders');
   if (!sheet) return { success: false, message: 'Sheet "Orders" not found' };
   
-  // 1. Handle Image Upload
-  let imageUrl = '';
+  // 1. Handle Image Upload (if not already uploaded)
+  let imageUrl = data.itemPhotoUrl || '';
   try {
-    if (data.image && FOLDER_ID && FOLDER_ID !== 'YOUR_DRIVE_FOLDER_ID_HERE') {
+    if (!imageUrl && data.image && FOLDER_ID && FOLDER_ID !== 'YOUR_DRIVE_FOLDER_ID_HERE') {
       const folder = DriveApp.getFolderById(FOLDER_ID);
       const contentType = data.image.split(',')[0].split(':')[1].split(';')[0];
       const bytes = Utilities.base64Decode(data.image.split(',')[1]);
@@ -172,6 +177,23 @@ function createOrder(data) {
   } catch (err) {
     console.error('Append Row Error:', err);
     return { success: false, message: 'Failed to save to sheet: ' + err.message };
+  }
+}
+
+function uploadImage(data) {
+  try {
+    if (data.image && FOLDER_ID && FOLDER_ID !== 'YOUR_DRIVE_FOLDER_ID_HERE') {
+      const folder = DriveApp.getFolderById(FOLDER_ID);
+      const contentType = data.image.split(',')[0].split(':')[1].split(';')[0];
+      const bytes = Utilities.base64Decode(data.image.split(',')[1]);
+      const fileName = `temp_${Date.now()}.png`;
+      const file = folder.createFile(Utilities.newBlob(bytes, contentType, fileName));
+      file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+      return { success: true, imageUrl: file.getUrl() };
+    }
+    return { success: false, message: 'No image data or folder ID' };
+  } catch (err) {
+    return { success: false, message: err.message };
   }
 }
 
