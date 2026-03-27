@@ -1,0 +1,5 @@
+{
+  "name": "Social Seller Order Manager",
+  "description": "A premium, minimal order management system for social sellers using Google Sheets as a database.",
+  "requestFramePermissions": []
+}
