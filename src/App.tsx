@@ -820,6 +820,7 @@ function Dashboard() {
   const [activeTab, setActiveTab] = useState<'orders' | 'stats'>('orders');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [error, setError] = useState('');
+  const [updatingOrder, setUpdatingOrder] = useState<{ id: string, type: string, value: string } | null>(null);
 
   useEffect(() => {
     if (isLoggedIn && sellerId) {
@@ -881,6 +882,7 @@ function Dashboard() {
   };
 
   const updateField = async (orderId: string, type: string, value: string) => {
+    setUpdatingOrder({ id: orderId, type, value });
     try {
       const res = await api.post({ action: 'updateStatus', orderId, type, status: value });
       if (res.success) {
@@ -894,6 +896,8 @@ function Dashboard() {
       } else {
         alert('Network Error: Could not connect to Google Sheets.');
       }
+    } finally {
+      setUpdatingOrder(null);
     }
   };
 
@@ -1172,9 +1176,15 @@ function Dashboard() {
                     <div className="flex flex-col gap-2">
                       <button 
                         onClick={() => updateStatus(order.orderId, 'orderStatus', 'Confirmed')}
-                        className="w-full py-4 px-4 bg-zinc-900 text-white rounded-xl text-xs font-bold hover:bg-zinc-800 transition-all flex items-center justify-center gap-2"
+                        disabled={updatingOrder?.id === order.orderId && updatingOrder?.value === 'Confirmed'}
+                        className="w-full py-4 px-4 bg-zinc-900 text-white rounded-xl text-xs font-bold hover:bg-zinc-800 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
                       >
-                        <CheckCircle className="w-4 h-4" /> Confirm Order
+                        {updatingOrder?.id === order.orderId && updatingOrder?.value === 'Confirmed' ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <CheckCircle className="w-4 h-4" />
+                        )}
+                        Confirm Order
                       </button>
                       <button 
                         onClick={() => {
@@ -1182,9 +1192,15 @@ function Dashboard() {
                             updateStatus(order.orderId, 'orderStatus', 'Cancelled');
                           }
                         }}
-                        className="w-full py-4 px-4 border border-red-200 text-red-600 rounded-xl text-xs font-bold hover:bg-red-50 transition-all flex items-center justify-center gap-2"
+                        disabled={updatingOrder?.id === order.orderId && updatingOrder?.value === 'Cancelled'}
+                        className="w-full py-4 px-4 border border-red-200 text-red-600 rounded-xl text-xs font-bold hover:bg-red-50 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
                       >
-                        <AlertCircle className="w-4 h-4" /> Cancel Order
+                        {updatingOrder?.id === order.orderId && updatingOrder?.value === 'Cancelled' ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <AlertCircle className="w-4 h-4" />
+                        )}
+                        Cancel Order
                       </button>
                     </div>
                   )}
@@ -1192,18 +1208,30 @@ function Dashboard() {
                   {order.orderStatus?.toLowerCase() === 'confirmed' && (
                     <button 
                       onClick={() => updateStatus(order.orderId, 'orderStatus', 'Shipped')}
-                      className="w-full py-4 px-4 bg-zinc-900 text-white rounded-xl text-xs font-bold hover:bg-zinc-800 transition-all flex items-center justify-center gap-2"
+                      disabled={updatingOrder?.id === order.orderId && updatingOrder?.value === 'Shipped'}
+                      className="w-full py-4 px-4 bg-zinc-900 text-white rounded-xl text-xs font-bold hover:bg-zinc-800 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
                     >
-                      <Truck className="w-4 h-4" /> Mark Shipped
+                      {updatingOrder?.id === order.orderId && updatingOrder?.value === 'Shipped' ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Truck className="w-4 h-4" />
+                      )}
+                      Mark Shipped
                     </button>
                   )}
 
                   {order.paymentStatus?.toLowerCase() === 'unpaid' && (
                     <button 
                       onClick={() => updateStatus(order.orderId, 'paymentStatus', 'Paid')}
-                      className="w-full py-4 px-4 border border-zinc-200 text-zinc-900 rounded-xl text-xs font-bold hover:bg-zinc-50 transition-all flex items-center justify-center gap-2"
+                      disabled={updatingOrder?.id === order.orderId && updatingOrder?.value === 'Paid'}
+                      className="w-full py-4 px-4 border border-zinc-200 text-zinc-900 rounded-xl text-xs font-bold hover:bg-zinc-50 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
                     >
-                      <CreditCard className="w-4 h-4" /> Mark Paid
+                      {updatingOrder?.id === order.orderId && updatingOrder?.value === 'Paid' ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <CreditCard className="w-4 h-4" />
+                      )}
+                      Mark Paid
                     </button>
                   )}
 
